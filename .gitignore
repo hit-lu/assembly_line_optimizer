@@ -1,0 +1,8 @@
+.idea
+result/
+data/
+*.txt
+__pycache__
+Lib/
+Scripts/
+*.cfg
