@@ -1,4 +1,5 @@
-from optimizer_common import *
+from base_optimizer.optimizer_common import *
+
 
 # 绘制各周期从供料器周期拾取的元件位置
 def pickup_cycle_schematic(feeder_slot_result, cycle_result):
@@ -6,10 +7,10 @@ def pickup_cycle_schematic(feeder_slot_result, cycle_result):
     plt.rcParams['axes.unicode_minus'] = False  # 解决保存图像是负号'-'显示为方块的问题
     # data
     bar_width = .7
-    feeder_part = np.zeros((int)(max_slot_index / 2), dtype = np.int)
+    feeder_part = np.zeros(int(max_slot_index / 2), dtype=np.int)
     for cycle in range(len(feeder_slot_result)):
         label_str = '周期' + str(cycle + 1)
-        cur_feeder_part = np.zeros((int)(max_slot_index / 2), dtype = np.int)
+        cur_feeder_part = np.zeros(int(max_slot_index / 2), dtype=np.int)
         for slot in feeder_slot_result[cycle]:
             if slot > 0:
                 cur_feeder_part[slot] += cycle_result[cycle]
@@ -38,7 +39,7 @@ def placement_route_schematic(pcb_data, component_result, cycle_result, feeder_s
     mount_pos = []
     for head in head_sequence[cycle]:
         index = placement_result[cycle][head]
-        plt.text(pos_x[index], pos_y[index] + 0.1, 'HD%d' % (head + 1), ha='center', va = 'bottom', size = 10)
+        plt.text(pos_x[index], pos_y[index] + 0.1, 'HD%d' % (head + 1), ha='center', va='bottom', size=10)
         plt.plot([pos_x[index], pos_x[index] - head * head_interval], [pos_y[index], pos_y[index]], linestyle='-.',
                  color='black', linewidth=1)
         mount_pos.append([pos_x[index] - head * head_interval, pos_y[index]])
@@ -48,7 +49,8 @@ def placement_route_schematic(pcb_data, component_result, cycle_result, feeder_s
 
     # 绘制贴装路径
     for i in range(len(mount_pos) - 1):
-        plt.plot([mount_pos[i][0], mount_pos[i + 1][0]], [mount_pos[i][1], mount_pos[i + 1][1]], color='blue', linewidth=1)
+        plt.plot([mount_pos[i][0], mount_pos[i + 1][0]], [mount_pos[i][1], mount_pos[i + 1][1]], color='blue',
+                 linewidth=1)
 
     draw_x, draw_y = [], []
     for c in range(cycle, len(placement_result)):
@@ -65,8 +67,8 @@ def placement_route_schematic(pcb_data, component_result, cycle_result, feeder_s
 
     # 绘制供料器位置布局
     for slot in range(max_slot_index // 2):
-        plt.scatter(slotf1_pos[0] + slot_interval * slot, slotf1_pos[1], marker = 'x', s = 12, color = 'green')
-        plt.text(slotf1_pos[0] + slot_interval * slot, slotf1_pos[1] - 50, slot + 1, ha = 'center', va = 'bottom', size = 8)
+        plt.scatter(slotf1_pos[0] + slot_interval * slot, slotf1_pos[1], marker='x', s=12, color='green')
+        plt.text(slotf1_pos[0] + slot_interval * slot, slotf1_pos[1] - 50, slot + 1, ha='center', va='bottom', size=8)
 
     feeder_part, feeder_counter = {}, {}
     placement_cycle = 0
@@ -84,7 +86,8 @@ def placement_route_schematic(pcb_data, component_result, cycle_result, feeder_s
         placement_cycle += cycle_result[cycle_]
 
     for slot, part in feeder_part.items():
-        plt.text(slotf1_pos[0] + slot_interval * (slot - 1), slotf1_pos[1] + 15, part + ': ' + str(feeder_counter[slot]), ha = 'center', size = 7, rotation = 90)
+        plt.text(slotf1_pos[0] + slot_interval * (slot - 1), slotf1_pos[1] + 15,
+                 part + ': ' + str(feeder_counter[slot]), ha='center', size=7, rotation=90)
 
     plt.plot([slotf1_pos[0] - slot_interval / 2, slotf1_pos[0] + slot_interval * (max_slot_index // 2 - 1 + 0.5)],
                     [slotf1_pos[1] + 10, slotf1_pos[1] + 10], color = 'black')
@@ -93,7 +96,7 @@ def placement_route_schematic(pcb_data, component_result, cycle_result, feeder_s
 
     for counter in range(max_slot_index // 2 + 1):
         pos = slotf1_pos[0] + (counter - 0.5) * slot_interval
-        plt.plot([pos, pos], [slotf1_pos[1] + 10, slotf1_pos[1] - 40], color='black', linewidth = 1)
+        plt.plot([pos, pos], [slotf1_pos[1] + 10, slotf1_pos[1] - 40], color='black', linewidth=1)
 
     # 绘制拾取路径
     pick_slot = []
@@ -130,7 +133,8 @@ def placement_route_schematic(pcb_data, component_result, cycle_result, feeder_s
     plt.show()
 
 
-def save_placement_route_figure(file_name, pcb_data, component_result, cycle_result, feeder_slot_result, placement_result, head_sequence):
+def save_placement_route_figure(file_name, pcb_data, component_result, cycle_result, feeder_slot_result,
+                                placement_result, head_sequence):
     path = 'result/' + file_name[:file_name.find('.')]
     if not os.path.exists(path):
         os.mkdir(path)
@@ -150,8 +154,8 @@ def save_placement_route_figure(file_name, pcb_data, component_result, cycle_res
             for head in head_sequence[cycle]:
                 index = placement_result[cycle][head]
                 plt.text(pos_x[index], pos_y[index] + 0.1, 'HD%d' % (head + 1), ha='center', va='bottom', size=10)
-                plt.plot([pos_x[index], pos_x[index] - head * head_interval], [pos_y[index], pos_y[index]], linestyle='-.',
-                         color='black', linewidth=1)
+                plt.plot([pos_x[index], pos_x[index] - head * head_interval], [pos_y[index], pos_y[index]],
+                         linestyle='-.', color='black', linewidth=1)
                 mount_pos.append([pos_x[index] - head * head_interval, pos_y[index]])
                 plt.plot(mount_pos[-1][0], mount_pos[-1][1], marker='^', color='red', markerfacecolor='white')
 
@@ -196,10 +200,12 @@ def save_placement_route_figure(file_name, pcb_data, component_result, cycle_res
                 plt.text(slotf1_pos[0] + slot_interval * (slot - 1), slotf1_pos[1] + 15,
                          part + ': ' + str(feeder_counter[slot]), ha='center', size=7, rotation=90)
 
-            plt.plot([slotf1_pos[0] - slot_interval / 2, slotf1_pos[0] + slot_interval * (max_slot_index // 2 - 1 + 0.5)],
-                     [slotf1_pos[1] + 10, slotf1_pos[1] + 10], color='black')
-            plt.plot([slotf1_pos[0] - slot_interval / 2, slotf1_pos[0] + slot_interval * (max_slot_index // 2 - 1 + 0.5)],
-                     [slotf1_pos[1] - 40, slotf1_pos[1] - 40], color='black')
+            plt.plot(
+                [slotf1_pos[0] - slot_interval / 2, slotf1_pos[0] + slot_interval * (max_slot_index // 2 - 1 + 0.5)],
+                [slotf1_pos[1] + 10, slotf1_pos[1] + 10], color='black')
+            plt.plot(
+                [slotf1_pos[0] - slot_interval / 2, slotf1_pos[0] + slot_interval * (max_slot_index // 2 - 1 + 0.5)],
+                [slotf1_pos[1] - 40, slotf1_pos[1] - 40], color='black')
 
             for counter in range(max_slot_index // 2 + 1):
                 pos = slotf1_pos[0] + (counter - 0.5) * slot_interval
@@ -217,12 +223,13 @@ def save_placement_route_figure(file_name, pcb_data, component_result, cycle_res
             pick_slot = list(set(pick_slot))
             pick_slot = sorted(pick_slot)
 
-            plt.plot([mount_pos[0][0], slotf1_pos[0] + slot_interval * (pick_slot[0] - 1)], [mount_pos[0][1], slotf1_pos[1]],
+            plt.plot([mount_pos[0][0], slotf1_pos[0] + slot_interval * (pick_slot[0] - 1)],
+                     [mount_pos[0][1], slotf1_pos[1]], color='blue', linewidth=1)
+            plt.plot([mount_pos[-1][0], slotf1_pos[0] + slot_interval * (pick_slot[-1] - 1)],
+                     [mount_pos[-1][1], slotf1_pos[1]], color='blue', linewidth=1)
+            plt.plot([slotf1_pos[0] + slot_interval * (pick_slot[0] - 1),
+                      slotf1_pos[0] + slot_interval * (pick_slot[-1] - 1)], [slotf1_pos[1], slotf1_pos[1]],
                      color='blue', linewidth=1)
-            plt.plot([mount_pos[-1][0], slotf1_pos[0] + slot_interval * (pick_slot[-1] - 1)], [mount_pos[-1][1], slotf1_pos[1]],
-                     color='blue', linewidth=1)
-            plt.plot([slotf1_pos[0] + slot_interval * (pick_slot[0] - 1), slotf1_pos[0] + slot_interval * (pick_slot[-1] - 1)],
-                     [slotf1_pos[1], slotf1_pos[1]], color='blue', linewidth=1)
 
             plt.savefig(path + '/cycle_{}'.format(cycle + 1))
 

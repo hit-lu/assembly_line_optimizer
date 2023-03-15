@@ -1,305 +1,166 @@
 import math
-import random
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
-from optimizer_common import *
+from base_optimizer.optimizer_aggregation import *
+from base_optimizer.optimizer_scanbased import *
+from base_optimizer.optimizer_celldivision import *
+from base_optimizer.optimizer_hybridgenetic import *
+from base_optimizer.optimizer_feederpriority import *
+
 from dataloader import *
 
-
-def get_top_k_value(pop_val, k: int):
-    res = []
-    pop_val_cpy = copy.deepcopy(pop_val)
-    pop_val_cpy.sort(reverse=True)
-
-    for i in range(min(len(pop_val_cpy), k)):
-        for j in range(len(pop_val)):
-            if abs(pop_val_cpy[i] - pop_val[j]) < 1e-9 and j not in res:
-                res.append(j)
-                break
-    return res
+from optimizer_genetic import *
+from optimizer_heuristic import *
 
 
-def swap_mutation(component_points, individual):
-    offspring = individual.copy()
+def optimizer(pcb_data, component_data, assembly_line_optimizer, single_machine_optimizer):
+    assignment_result = assemblyline_optimizer_genetic(pcb_data, component_data)
 
-    idx, component_index = 0, random.randint(0, len(component_points) - 1)
-    for points in component_points.values():
-        if component_index == 0:
-            index1 = random.randint(0, points + max_machine_index - 2)
-            while True:
-                index2 = random.randint(0, points + max_machine_index - 2)
-                if index1 != index2 and offspring[idx + index1] != offspring[idx + index2]:
-                    break
-            offspring[idx + index1], offspring[idx + index2] = offspring[idx + index2], offspring[idx + index1]
-            break
+    # assignment_result = [[0, 0, 0, 0, 216, 0, 0], [0, 0, 0, 0, 216, 0, 0], [36, 24, 12, 12, 0, 36, 12]]
+    placement_points, placement_time = [], []
+    partial_pcb_data, partial_component_data = defaultdict(pd.DataFrame), defaultdict(pd.DataFrame)
+    for machine_index in range(max_machine_index):
+        partial_pcb_data[machine_index] = pd.DataFrame(columns=pcb_data.columns)
+        partial_component_data[machine_index] = component_data.copy(deep=True)
+        placement_points.append(sum(assignment_result[machine_index]))
 
-        component_index -= 1
-        idx += (points + max_machine_index - 1)
+    # averagely assign available feeder
+    for part_index, data in component_data.iterrows():
+        feeder_limit = data['feeder-limit']
+        feeder_points = [assignment_result[machine_index][part_index] for machine_index in range(max_machine_index)]
 
-    return offspring
-
-
-def roulette_wheel_selection(pop_eval):
-    # Roulette wheel
-    random_val = np.random.random()
-    for idx, val in enumerate(pop_eval):
-        random_val -= val
-        if random_val <= 0:
-            return idx
-    return len(pop_eval) - 1
-
-
-def random_selective(data, possibility):        # 依概率选择随机数
-    assert len(data) == len(possibility) and len(data) > 0
-
-    sum_val = sum(possibility)
-    possibility = [p / sum_val for p in possibility]
-
-    random_val = random.random()
-    for idx, val in enumerate(possibility):
-        random_val -= val
-        if random_val <= 0:
-            break
-    return data[idx]
-
-
-def selective_initialization(component_points, population_size):
-    population = []                                     # population initialization
-
-    for _ in range(population_size):
-        individual = []
-        for points in component_points.values():
-            if points == 0:
+        for machine_index in range(max_machine_index):
+            if feeder_points[machine_index] == 0:
                 continue
-            avl_machine_num = random.randint(1, min(max_machine_index, points))  # 可用机器数
 
-            selective_possibility = []
-            for p in range(1, avl_machine_num + 1):
-                selective_possibility.append(pow(2, avl_machine_num - p + 1))
+            arg_feeder = max(math.floor(feeder_points[machine_index] / sum(feeder_points) * data['feeder-limit']), 1)
 
-            sel_machine_num = random_selective([p + 1 for p in range(avl_machine_num)], selective_possibility)  # 选择的机器数
-            sel_machine_set = random.sample([p for p in range(avl_machine_num)], sel_machine_num)
+            partial_component_data[machine_index].loc[part_index]['feeder-limit'] = arg_feeder
+            feeder_limit -= arg_feeder
 
-            sel_machine_points = [1 for _ in range(sel_machine_num)]
-            for p in range(sel_machine_num - 1):
-                if points == sum(sel_machine_points):
-                    break
-                assign_points = random.randint(1, points - sum(sel_machine_points))
-                sel_machine_points[p] += assign_points
+        for machine_index in range(max_machine_index):
+            if feeder_limit <= 0:
+                break
 
-            if sum(sel_machine_points) < points:
-                sel_machine_points[-1] += (points - sum(sel_machine_points))
+            if feeder_points[machine_index] == 0:
+                continue
+            partial_component_data[machine_index].loc[part_index]['feeder-limit'] += 1
+            feeder_limit -= 1
 
-            # code component allocation into chromosome
-            for p in range(max_machine_index):
-                if p in sel_machine_set:
-                    individual += [0 for _ in range(sel_machine_points[0])]
-                    sel_machine_points.pop(0)
-                individual.append(1)
-            individual.pop(-1)
-
-        population.append(individual)
-    return population
-
-
-def selective_crossover(mother, father, non_decelerating=True):
-    assert len(mother) == len(father)
-
-    offspring1, offspring2 = mother.copy(), father.copy()
-    one_counter, feasible_cutline = 0, []
-    for idx in range(len(mother) - 1):
-        if mother[idx] == 1:
-            one_counter += 1
-        if father[idx] == 1:
-            one_counter -= 1
-
-        # first constraint: the total number of “1”s (the number of partitions) in the chromosome is unchanged
-        if one_counter != 0 or idx == 0 or idx == len(mother) - 2:
-            continue
-
-        # the selected cutline should guarantee there are the same or a larger number unassigned machine
-        # for each component type
-        n_bro, n_new = 0, 0
-        if mother[idx] and mother[idx + 1]:
-            n_bro += 1
-        if father[idx] and father[idx + 1]:
-            n_bro += 1
-        if mother[idx] and father[idx + 1]:
-            n_new += 1
-        if father[idx] and mother[idx + 1]:
-            n_new += 1
-
-        # non_decelerating or accelerating crossover
-        if (non_decelerating and n_bro <= n_new) or n_bro < n_new:
-            feasible_cutline.append(idx)
-
-    if len(feasible_cutline) == 0:
-        return offspring1, offspring2
-
-    cutline_idx = feasible_cutline[random.randint(0, len(feasible_cutline) - 1)]
-    offspring1, offspring2 = mother[:cutline_idx + 1] + father[cutline_idx + 1:], father[:cutline_idx + 1] + mother[
-                                                                                                     cutline_idx + 1:]
-    return offspring1, offspring2
-
-
-def cal_individual_val(component_points, component_nozzle, individual):
-    idx, objective_val = 0, [0]
-    machine_component_points = [[] for _ in range(max_machine_index)]
-
-    # decode the component allocation
-    for points in component_points.values():
-        component_gene = individual[idx: idx + points + max_machine_index - 1]
-        machine_idx, component_counter = 0, 0
-        for gene in component_gene:
-            if gene:
-                machine_component_points[machine_idx].append(component_counter)
-                machine_idx += 1
-                component_counter = 0
+    component_machine_index = [0 for _ in range(len(component_data))]
+    pcb_data = pcb_data.sort_values(by="x", ascending=False)
+    for _, data in pcb_data.iterrows():
+        part = data['part']
+        part_index = component_data[component_data['part'] == part].index.tolist()[0]
+        while True:
+            machine_index = component_machine_index[part_index]
+            if assignment_result[machine_index][part_index] == 0:
+                component_machine_index[part_index] += 1
+                machine_index += 1
             else:
-                component_counter += 1
-        machine_component_points[-1].append(component_counter)
-        idx += (points + max_machine_index - 1)
-
-    for machine_idx in range(max_machine_index):
-        nozzle_points = defaultdict(int)
-        for idx, nozzle in component_nozzle.items():
-            if component_points[idx] == 0:
-                continue
-            nozzle_points[nozzle] += machine_component_points[machine_idx][idx]
-
-        machine_points = sum(machine_component_points[machine_idx])         # num of placement points
-        if machine_points == 0:
-            continue
-        ul = math.ceil(len(nozzle_points) * 1.0 / max_head_index) - 1       # num of nozzle set
-
-        # assignments of nozzles to heads
-        wl = 0                                                          # num of workload
-        total_heads = (1 + ul) * max_head_index - len(nozzle_points)
-        nozzle_heads = defaultdict(int)
-        for nozzle in nozzle_points.keys():
-            nozzle_heads[nozzle] = math.floor(nozzle_points[nozzle] * 1.0 / machine_points * total_heads)
-            nozzle_heads[nozzle] += 1
-
-        total_heads = (1 + ul) * max_head_index
-        for heads in nozzle_heads.values():
-            total_heads -= heads
-
-        for nozzle in nozzle_heads.keys():      # TODO：有利于减少周期的方法
-            if total_heads == 0:
                 break
-            nozzle_heads[nozzle] += 1
-            total_heads -= 1
+        assignment_result[machine_index][part_index] -= 1
+        partial_pcb_data[machine_index] = pd.concat([partial_pcb_data[machine_index], pd.DataFrame(data).T])
 
-        # averagely assign placements to heads
-        heads_placement = []
-        for nozzle in nozzle_heads.keys():
-            points = math.floor(nozzle_points[nozzle] / nozzle_heads[nozzle])
+    for machine_index, data in partial_pcb_data.items():
+        data = data.reset_index(drop=True)
+        if len(data) == 0:
+            continue
 
-            heads_placement += [[nozzle, points] for _ in range(nozzle_heads[nozzle])]
-            nozzle_points[nozzle] -= (nozzle_heads[nozzle] * points)
-            for idx in range(len(heads_placement) - 1, -1, -1):
-                if nozzle_points[nozzle] <= 0:
-                    break
-                nozzle_points[nozzle] -= 1
-                heads_placement[idx][1] += 1
-        heads_placement = sorted(heads_placement, key=lambda x: x[1], reverse=True)
+        placement_time.append(base_optimizer(machine_index + 1, data, partial_component_data[machine_index],
+                                             feeder_data=pd.DataFrame(columns=['slot', 'part', 'arg']),
+                                             method=single_machine_optimizer, hinter=True))
 
-        # every max_head_index heads in the non-decreasing order are grouped together as nozzle set
-        for idx in range(len(heads_placement) // max_head_index):
-            wl += heads_placement[idx][1]
-        objective_val.append(T_pp * machine_points + T_tr * wl + T_nc * ul)
+    average_time, standard_deviation_time = sum(placement_time) / max_machine_index, 0
+    for machine_index in range(max_machine_index):
+        print('assembly time for machine ' + str(machine_index + 1) + ': ' + str(
+            placement_time[machine_index]) + ' s, ' + 'total placements: ' + str(placement_points[machine_index]))
+        standard_deviation_time += pow(placement_time[machine_index] - average_time, 2)
+    standard_deviation_time /= max_machine_index
+    standard_deviation_time = math.sqrt(standard_deviation_time)
 
-    return max(objective_val), machine_component_points
+    print('finial assembly time: ' + str(max(placement_time)) + 's, standard deviation: ' + str(standard_deviation_time))
 
 
-@timer_wrapper
-def optimizer(pcb_data, component_data):
-    # basic parameter
-    # crossover rate & mutation rate: 80% & 10%
-    # population size: 200
-    # the number of generation: 500
-    crossover_rate, mutation_rate = 0.8, 0.1
-    population_size, n_generations = 200, 500
+# todo: 不同类型元件的组装时间差异
+def base_optimizer(machine_index, pcb_data, component_data, feeder_data=None, method='', hinter=False):
+    if method == 'cell_division':  # 基于元胞分裂的遗传算法
+        component_result, cycle_result, feeder_slot_result = optimizer_celldivision(pcb_data, component_data, False)
+        placement_result, head_sequence = greedy_placement_route_generation(component_data, pcb_data, component_result,
+                                                                            cycle_result, feeder_slot_result)
+    elif method == 'feeder_priority':  # 基于基座扫描的供料器优先算法
+        # 第1步：分配供料器位置
+        nozzle_pattern = feeder_allocate(component_data, pcb_data, feeder_data, False)
+        # 第2步：扫描供料器基座，确定元件拾取的先后顺序
+        component_result, cycle_result, feeder_slot_result = feeder_base_scan(component_data, pcb_data, feeder_data,
+                                                                              nozzle_pattern)
 
-    # the number of placement points and nozzle type of component
-    component_points, component_nozzle = defaultdict(int), defaultdict(str)
-    for data in pcb_data.iterrows():
-        part_index = component_data[component_data['part'] == data[1]['part']].index.tolist()[0]
-        nozzle = component_data.loc[part_index]['nz']
+        # 第3步：贴装路径规划
+        placement_result, head_sequence = greedy_placement_route_generation(component_data, pcb_data, component_result,
+                                                                            cycle_result, feeder_slot_result)
+        # placement_result, head_sequence = beam_search_for_route_generation(component_data, pcb_data, component_result,
+        #                                                                    cycle_result, feeder_slot_result)
 
-        component_points[part_index] += 1
-        component_nozzle[part_index] = nozzle
+    elif method == 'hybrid_genetic':  # 基于拾取组的混合遗传算法
+        component_result, cycle_result, feeder_slot_result, placement_result, head_sequence = optimizer_hybrid_genetic(
+            pcb_data, component_data, False)
 
-    # population initialization
-    best_popval = []
-    population = selective_initialization(component_points, population_size)
-    with tqdm(total=n_generations) as pbar:
-        pbar.set_description('genetic process for PCB assembly')
+    elif method == 'aggregation':  # 基于batch-level的整数规划 + 启发式算法
+        component_result, cycle_result, feeder_slot_result, placement_result, head_sequence = optimizer_aggregation(
+            component_data, pcb_data)
+    elif method == 'scan_based':
+        component_result, cycle_result, feeder_slot_result, placement_result, head_sequence = optimizer_scanbased(
+            component_data, pcb_data, False)
+    else:
+        raise 'method is not existed'
 
-        new_population, new_pop_val = [], []
-        for _ in range(n_generations):
-            # calculate fitness value
-            pop_val = []
-            for individual in population:
-                val, _ = cal_individual_val(component_points, component_nozzle, individual)
-                pop_val.append(val)
+    if hinter:
+        optimization_assign_result(component_data, pcb_data, component_result, cycle_result, feeder_slot_result,
+                                   nozzle_hinter=False, component_hinter=False, feeder_hinter=False)
 
-            best_popval.append(min(pop_val))
-            # min-max convert
-            max_val = max(pop_val)
-            pop_val = list(map(lambda v: max_val - v, pop_val))
+        print('----- Placement machine ' + str(machine_index) + ' ----- ')
+        print('-Cycle counter: {}'.format(sum(cycle_result)))
 
-            sum_pop_val = sum(pop_val)
-            pop_val = [v / sum_pop_val for v in pop_val]
+        total_nozzle_change_counter, total_pick_counter = 0, 0
+        assigned_nozzle = ['' if idx == -1 else component_data.loc[idx]['nz'] for idx in component_result[0]]
 
-            select_index = get_top_k_value(pop_val, population_size - len(new_pop_val))
-            population = [population[idx] for idx in select_index]
-            pop_val = [pop_val[idx] for idx in select_index]
+        for cycle in range(len(cycle_result)):
+            pick_slot = set()
+            for head in range(max_head_index):
+                if (idx := component_result[cycle][head]) == -1:
+                    continue
 
-            population += new_population
-            for individual in new_population:
-                val, _ = cal_individual_val(component_points, component_nozzle, individual)
-                pop_val.append(val)
+                nozzle = component_data.loc[idx]['nz']
+                if nozzle != assigned_nozzle[head]:
+                    if assigned_nozzle[head] != '':
+                        total_nozzle_change_counter += 1
+                    assigned_nozzle[head] = nozzle
 
-            # crossover and mutation
-            new_population = []
-            for pop in range(population_size):
-                if pop % 2 == 0 and np.random.random() < crossover_rate:
-                    index1 = roulette_wheel_selection(pop_val)
-                    while True:
-                        index2 = roulette_wheel_selection(pop_val)
-                        if index1 != index2:
-                            break
+                pick_slot.add(feeder_slot_result[cycle][head] - head * interval_ratio)
+            total_pick_counter += len(pick_slot) * cycle_result[cycle]
 
-                    offspring1, offspring2 = selective_crossover(population[index1], population[index2])
-                    if np.random.random() < mutation_rate:
-                        offspring1 = swap_mutation(component_points, offspring1)
+        print('-Nozzle change counter: {}'.format(total_nozzle_change_counter))
+        print('-Pick operation counter: {}'.format(total_pick_counter))
+        print('------------------------------ ')
 
-                    if np.random.random() < mutation_rate:
-                        offspring1 = swap_mutation(component_points, offspring1)
-
-                    new_population.append(offspring1)
-                    new_population.append(offspring2)
-
-            pbar.update(1)
-
-    best_individual = population[np.argmin(pop_val)]
-    val, result = cal_individual_val(component_points, component_nozzle, best_individual)
-    print(result)
-
-    plt.plot(best_popval)
-    plt.show()
-    # TODO: 计算实际的PCB整线组装时间
+    # 估算贴装用时
+    return placement_time_estimate(component_data, pcb_data, component_result, cycle_result, feeder_slot_result,
+                                   placement_result, head_sequence, False)
 
 
-if __name__ == '__main__':
+def main():
     # warnings.simplefilter('ignore')
     # 参数解析
     parser = argparse.ArgumentParser(description='assembly line optimizer implementation')
-    parser.add_argument('--filename', default='PCB.txt', type=str, help='load pcb data')
+    parser.add_argument('--filename', default='PCB1 - FL19-30W.txt', type=str, help='load pcb data')
     parser.add_argument('--auto_register', default=1, type=int, help='register the component according the pcb data')
-
+    parser.add_argument('--base_optimizer', default='feeder_priority', type=str,
+                        help='base optimizer for single machine')
+    parser.add_argument('--assembly_optimizer', default='genetic', type=str, help='optimizer for PCB Assembly Line')
+    parser.add_argument('--feeder_limit', default=2, type=int,
+                        help='the upper feeder limit for each type of component')
     params = parser.parse_args()
 
     # 结果输出显示所有行和列
@@ -307,10 +168,13 @@ if __name__ == '__main__':
     pd.set_option('display.max_rows', None)
 
     # 加载PCB数据
-    pcb_data, component_data, _ = load_data(params.filename, component_register=params.auto_register)  # 加载PCB数据
+    pcb_data, component_data, _ = load_data(params.filename, default_feeder_limit=params.feeder_limit,
+                                            cp_auto_register=params.auto_register)  # 加载PCB数据
 
-    optimizer(pcb_data, component_data)
+    optimizer(pcb_data, component_data, params.assembly_optimizer, params.base_optimizer)
 
 
+if __name__ == '__main__':
+    main()
 
 
