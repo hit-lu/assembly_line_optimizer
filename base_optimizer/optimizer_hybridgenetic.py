@@ -234,8 +234,8 @@ def cal_individual_val(component_nozzle, component_point_pos, designated_nozzle,
     return V[-1], pickup_result, pickup_cycle_result
 
 
-def convert_individual_2_result(component_data, component_point_pos, designated_nozzle, pickup_group, pickup_group_cycle,
-                       pair_group, feeder_lane, individual):
+def convert_individual_2_result(component_data, component_point_pos, designated_nozzle, pickup_group,
+                                pickup_group_cycle, pair_group, feeder_lane, individual):
     component_result, cycle_result, feeder_slot_result = [], [], []
     placement_result, head_sequence_result = [], []
 
@@ -418,19 +418,19 @@ def optimizer_hybrid_genetic(pcb_data, component_data, hinter=True):
                 pick_part = pickup[pickup_index]
 
                 # 检查槽位占用情况
-                if feeder_lane[slot] is not None and pick_part is not None:
+                if feeder_lane[slot] and pick_part:
                     assign_available = False
                     break
 
                 # 检查机械限位冲突
-                if pick_part is not None and (slot - CT_Head[pick_part][0] * interval_ratio <= 0 or
-                    slot + (max_head_index - CT_Head[pick_part][1] - 1) * interval_ratio > max_slot_index // 2):
+                if pick_part and (slot - CT_Head[pick_part][0] * interval_ratio <= 0 or slot + (
+                        max_head_index - CT_Head[pick_part][1] - 1) * interval_ratio > max_slot_index // 2):
                     assign_available = False
                     break
 
             if assign_available:
                 for idx, component in enumerate(pickup):
-                    if component is not None:
+                    if component:
                         feeder_lane[assign_slot + idx * interval_ratio] = component
                 CT_Group_slot[CTIdx] = assign_slot
                 break
@@ -509,32 +509,31 @@ def optimizer_hybrid_genetic(pcb_data, component_data, hinter=True):
 
     with tqdm(total=n_generations) as pbar:
         pbar.set_description('hybrid genetic process')
+        # calculate fitness value
+        pop_val = []
+        for pop_idx, individual in enumerate(population):
+            val, _, _ = cal_individual_val(component_nozzle, component_point_pos, designated_nozzle, pickup_group,
+                                           pickup_group_cycle, pair_group, feeder_part_arrange, individual)
+            pop_val.append(val)         # val is related to assembly time
 
         for _ in range(n_generations):
-            # calculate fitness value
-            pop_val = []
-            for pop_idx, individual in enumerate(population):
-                val, _, _ = cal_individual_val(component_nozzle, component_point_pos, designated_nozzle, pickup_group,
-                                               pickup_group_cycle, pair_group, feeder_part_arrange, individual)
-                pop_val.append(val)
-
-            idx = np.argmin(pop_val)
-            if len(best_pop_val) == 0 or pop_val[idx] < best_pop_val[-1]:
-                best_individual = copy.deepcopy(population[idx])
-            best_pop_val.append(pop_val[idx])
+            # idx = np.argmin(pop_val)
+            # if len(best_pop_val) == 0 or pop_val[idx] < best_pop_val[-1]:
+            #     best_individual = copy.deepcopy(population[idx])
+            # best_pop_val.append(pop_val[idx])
 
             # min-max convert
             max_val = 1.5 * max(pop_val)
-            pop_val = list(map(lambda v: max_val - v, pop_val))
+            convert_pop_val = list(map(lambda v: max_val - v, pop_val))
 
             # crossover and mutation
             c = 0
-            new_population = []
+            new_population, new_pop_val = [], []
             for pop in range(population_size):
                 if pop % 2 == 0 and np.random.random() < crossover_rate:
-                    index1, index2 = roulette_wheel_selection(pop_val), -1
+                    index1, index2 = roulette_wheel_selection(convert_pop_val), -1
                     while True:
-                        index2 = roulette_wheel_selection(pop_val)
+                        index2 = roulette_wheel_selection(convert_pop_val)
                         if index1 != index2:
                             break
                     # 两点交叉算子
@@ -552,13 +551,27 @@ def optimizer_hybrid_genetic(pcb_data, component_data, hinter=True):
                     new_population.append(offspring1)
                     new_population.append(offspring2)
 
-            # selection
-            top_k_index = get_top_k_value(pop_val, population_size - len(new_population))
+                    val, _, _ = cal_individual_val(component_nozzle, component_point_pos, designated_nozzle,
+                                                   pickup_group,
+                                                   pickup_group_cycle, pair_group, feeder_part_arrange, offspring1)
+                    new_pop_val.append(val)
+
+                    val, _, _ = cal_individual_val(component_nozzle, component_point_pos, designated_nozzle,
+                                                   pickup_group,
+                                                   pickup_group_cycle, pair_group, feeder_part_arrange, offspring2)
+                    new_pop_val.append(val)
+
+            # generate next generation
+            top_k_index = get_top_k_value(pop_val, population_size - len(new_population), reverse=False)
             for index in top_k_index:
                 new_population.append(population[index])
+                new_pop_val.append(pop_val[index])
 
             population = new_population
+            pop_val = new_pop_val
             pbar.update(1)
+
+    best_individual = population[np.argmin(pop_val)]
 
     return convert_individual_2_result(component_data, component_point_pos, designated_nozzle, pickup_group,
                                        pickup_group_cycle, pair_group, feeder_lane, best_individual)
