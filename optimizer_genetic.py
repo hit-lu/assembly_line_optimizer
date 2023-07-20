@@ -1,14 +1,14 @@
+# implementation of <<An integrated allocation method for the PCB assembly line balancing problem with nozzle changes>>
 import matplotlib.pyplot as plt
 
 from base_optimizer.optimizer_common import *
 
 
 def selective_initialization(component_points, component_feeders, population_size):
-    population = []                                     # population initialization
-
+    population = []    # population initialization
     for _ in range(population_size):
         individual = []
-        for part_index, points in component_points.items():
+        for part_index, points in component_points:
             if points == 0:
                 continue
             # 可用机器数
@@ -50,7 +50,7 @@ def selective_crossover(component_points, component_feeders, mother, father, non
     one_counter, feasible_cut_line = 0, []
 
     idx = 0
-    for part_index, points in component_points.items():
+    for part_index, points in component_points:
         one_counter = 0
 
         idx_, mother_cut_line, father_cut_line = 0, [-1], [-1]
@@ -136,7 +136,7 @@ def cal_individual_val(component_points, component_nozzle, individual):
     machine_component_points = [[] for _ in range(max_machine_index)]
 
     # decode the component allocation
-    for points in component_points.values():
+    for _, points in component_points:
         component_gene = individual[idx: idx + points + max_machine_index - 1]
         machine_idx, component_counter = 0, 0
         for gene in component_gene:
@@ -206,6 +206,7 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
     # crossover rate & mutation rate: 80% & 10%
     # population size: 200
     # the number of generation: 500
+    np.random.seed(0)
     crossover_rate, mutation_rate = 0.8, 0.1
     population_size, n_generations = 200, 500
 
@@ -218,6 +219,8 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
         component_points[part_index] += 1
         component_feeders[part_index] = component_data.loc[part_index]['feeder-limit']
         component_nozzle[part_index] = nozzle
+
+    component_points = sorted(component_points.items(), key=lambda x: x[0])     # 决定染色体排列顺序
 
     # population initialization
     best_popval = []

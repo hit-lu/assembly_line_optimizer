@@ -362,14 +362,24 @@ def optimization_assign_result(component_data, pcb_data, component_result, cycle
 
         nozzle_assign = pd.DataFrame(columns=columns)
         for cycle, components in enumerate(component_result):
-            nozzle_assign.loc[cycle, 'cycle'] = cycle_result[cycle]
+            nozzle_assign_row = len(nozzle_assign)
+            nozzle_assign.loc[nozzle_assign_row, 'cycle'] = cycle_result[cycle]
+
             for head in range(max_head_index):
                 index = component_result[cycle][head]
                 if index == -1:
-                    nozzle_assign.loc[cycle, 'H{}'.format(head + 1)] = ''
+                    nozzle_assign.loc[nozzle_assign_row, 'H{}'.format(head + 1)] = ''
                 else:
                     nozzle = component_data.loc[index]['nz']
-                    nozzle_assign.loc[cycle, 'H{}'.format(head + 1)] = nozzle
+                    nozzle_assign.loc[nozzle_assign_row, 'H{}'.format(head + 1)] = nozzle
+
+            for head in range(max_head_index):
+                if nozzle_assign_row == 0 or nozzle_assign.loc[nozzle_assign_row - 1, 'H{}'.format(head + 1)] != \
+                        nozzle_assign.loc[nozzle_assign_row, 'H{}'.format(head + 1)]:
+                    break
+            else:
+                nozzle_assign.loc[nozzle_assign_row - 1, 'cycle'] += nozzle_assign.loc[nozzle_assign_row, 'cycle']
+                nozzle_assign.drop([len(nozzle_assign) - 1], inplace=True)
 
         print(nozzle_assign)
         print('')
@@ -449,17 +459,13 @@ def placement_time_estimate(component_data, pcb_data, component_result, cycle_re
             warnings.warn(info, UserWarning)
             return 0.
 
-    t_pick, t_place = .078, .051                  # 贴装/拾取用时
-    t_nozzle_put, t_nozzle_pick = 0.9, 0.75       # 装卸吸嘴用时
-    t_fix_camera_check = 0.12                     # 固定相机检测时间
-
-    total_moving_time = .0                          # 总移动用时
-    total_operation_time = .0                       # 操作用时
-    total_nozzle_change_counter = 0                 # 总吸嘴更换次数
-    total_pick_counter = 0                          # 总拾取次数
-    total_mount_distance, total_pick_distance = .0, .0   # 贴装距离、拾取距离
-    total_distance = 0                              # 总移动距离
-    cur_pos, next_pos = anc_marker_pos, [0, 0]      # 贴装头当前位置
+    total_pickup_time, total_round_time, total_place_time = .0, .0, 0   # 拾取用时、往返用时、贴装用时
+    total_operation_time = .0                                           # 操作用时
+    total_nozzle_change_counter = 0                                     # 总吸嘴更换次数
+    total_pick_counter = 0                                              # 总拾取次数
+    total_mount_distance, total_pick_distance = .0, .0                  # 贴装距离、拾取距离
+    total_distance = 0                                                  # 总移动距离
+    cur_pos, next_pos = anc_marker_pos, [0, 0]                          # 贴装头当前位置
 
     # 初始化首个周期的吸嘴装配信息
     nozzle_assigned = ['Empty' for _ in range(max_head_index)]
@@ -492,8 +498,10 @@ def placement_time_estimate(component_data, pcb_data, component_result, cycle_re
             # ANC处进行吸嘴更换
             if nozzle_pick_counter + nozzle_put_counter > 0:
                 next_pos = anc_marker_pos
-                total_moving_time += max(axis_moving_time(cur_pos[0] - next_pos[0], 0),
-                                         axis_moving_time(cur_pos[1] - next_pos[1], 1))
+                move_time = max(axis_moving_time(cur_pos[0] - next_pos[0], 0),
+                                axis_moving_time(cur_pos[1] - next_pos[1], 1))
+                total_round_time += move_time
+
                 total_distance += max(abs(cur_pos[0] - next_pos[0]), abs(cur_pos[1] - next_pos[1]))
                 cur_pos = next_pos
 
@@ -501,15 +509,21 @@ def placement_time_estimate(component_data, pcb_data, component_result, cycle_re
             pick_slot = sorted(pick_slot, reverse=True)
 
             # 拾取路径(自右向左)
-            for slot in pick_slot:
+            for idx, slot in enumerate(pick_slot):
                 if slot < max_slot_index // 2:
                     next_pos = [slotf1_pos[0] + slot_interval * (slot - 1), slotf1_pos[1]]
                 else:
                     next_pos = [slotr1_pos[0] - slot_interval * (max_slot_index - slot - 1), slotr1_pos[1]]
                 total_operation_time += t_pick
                 total_pick_counter += 1
-                total_moving_time += max(axis_moving_time(cur_pos[0] - next_pos[0], 0),
-                                         axis_moving_time(cur_pos[1] - next_pos[1], 1))
+
+                move_time = max(axis_moving_time(cur_pos[0] - next_pos[0], 0),
+                                axis_moving_time(cur_pos[1] - next_pos[1], 1))
+                if idx == 0:
+                    total_round_time += move_time
+                else:
+                    total_pickup_time += move_time
+
                 total_distance += max(abs(cur_pos[0] - next_pos[0]), abs(cur_pos[1] - next_pos[1]))
                 if slot != pick_slot[0]:
                     total_pick_distance += max(abs(cur_pos[0] - next_pos[0]), abs(cur_pos[1] - next_pos[1]))
@@ -522,8 +536,10 @@ def placement_time_estimate(component_data, pcb_data, component_result, cycle_re
                 camera = component_data.loc[component_result[cycle_set][head]]['camera']
                 if camera == '固定相机':
                     next_pos = [fix_camera_pos[0] - head * head_interval, fix_camera_pos[1]]
-                    total_moving_time += max(axis_moving_time(cur_pos[0] - next_pos[0], 0),
-                                             axis_moving_time(cur_pos[1] - next_pos[1], 1))
+                    move_time = max(axis_moving_time(cur_pos[0] - next_pos[0], 0),
+                                    axis_moving_time(cur_pos[1] - next_pos[1], 1))
+                    total_round_time += move_time
+
                     total_distance += max(abs(cur_pos[0] - next_pos[0]), abs(cur_pos[1] - next_pos[1]))
                     total_operation_time += t_fix_camera_check
                     cur_pos = next_pos
@@ -545,22 +561,26 @@ def placement_time_estimate(component_data, pcb_data, component_result, cycle_re
             # 考虑R轴预旋转，补偿同轴角度转动带来的额外贴装用时
             total_operation_time += head_rotary_time(mount_angle[0])  # 补偿角度转动带来的额外贴装用时
             total_operation_time += t_nozzle_put * nozzle_put_counter + t_nozzle_pick * nozzle_pick_counter
-            for pos in mount_pos:
+            for idx, pos in enumerate(mount_pos):
                 total_operation_time += t_place
-                total_moving_time += max(axis_moving_time(cur_pos[0] - pos[0], 0),
-                                         axis_moving_time(cur_pos[1] - pos[1], 1))
+                move_time = max(axis_moving_time(cur_pos[0] - pos[0], 0), axis_moving_time(cur_pos[1] - pos[1], 1))
+                if idx == 0:
+                    total_round_time += move_time
+                else:
+                    total_place_time += move_time
+
                 total_distance += max(abs(cur_pos[0] - pos[0]), abs(cur_pos[1] - pos[1]))
                 cur_pos = pos
 
             total_nozzle_change_counter += nozzle_put_counter + nozzle_pick_counter
 
-    total_time = total_moving_time + total_operation_time
+    total_time = total_pickup_time + total_round_time + total_place_time + total_operation_time
     minutes, seconds = int(total_time // 60), int(total_time) % 60
     millisecond = int((total_time - minutes * 60 - seconds) * 60)
 
     if hinter:
         optimization_assign_result(component_data, pcb_data, component_result, cycle_result, feeder_slot_result,
-                                   nozzle_hinter=True, component_hinter=True, feeder_hinter=True)
+                                   nozzle_hinter=False, component_hinter=False, feeder_hinter=False)
 
         print('-Cycle counter: {}'.format(sum(cycle_result)))
         print('-Nozzle change counter: {}'.format(total_nozzle_change_counter // 2))
@@ -570,7 +590,9 @@ def placement_time_estimate(component_data, pcb_data, component_result, cycle_re
         print('-Expected picking tour length: {} mm'.format(total_pick_distance))
         print('-Expected total tour length: {} mm'.format(total_distance))
 
-        print('-Expected total moving time: {} s'.format(total_moving_time))
+        print('-Expected total moving time: {} s with pick: {}, round: {}, place = {}'.format(
+            total_pickup_time + total_round_time + total_place_time, total_pickup_time, total_round_time,
+            total_place_time))
         print('-Expected total operation time: {} s'.format(total_operation_time))
 
         if minutes > 0:

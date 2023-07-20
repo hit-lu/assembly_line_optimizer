@@ -2,7 +2,7 @@ from base_optimizer.optimizer_common import *
 
 
 @timer_wrapper
-def feeder_allocate(component_data, pcb_data, feeder_data, nozzle_pattern, figure=False):
+def feeder_allocate(component_data, pcb_data, feeder_data, figure=False):
 
     feeder_points, feeder_division_points = defaultdict(int), defaultdict(int)   # 供料器贴装点数
     mount_center_pos = defaultdict(int)
