@@ -1,14 +1,16 @@
+# implementation of <<An integrated allocation method for the PCB assembly line balancing problem with nozzle changes>>
+import copy
+
 import matplotlib.pyplot as plt
 
 from base_optimizer.optimizer_common import *
 
 
 def selective_initialization(component_points, component_feeders, population_size):
-    population = []                                     # population initialization
-
+    population = []    # population initialization
     for _ in range(population_size):
         individual = []
-        for part_index, points in component_points.items():
+        for part_index, points in component_points:
             if points == 0:
                 continue
             # 可用机器数
@@ -50,7 +52,7 @@ def selective_crossover(component_points, component_feeders, mother, father, non
     one_counter, feasible_cut_line = 0, []
 
     idx = 0
-    for part_index, points in component_points.items():
+    for part_index, points in component_points:
         one_counter = 0
 
         idx_, mother_cut_line, father_cut_line = 0, [-1], [-1]
@@ -134,9 +136,10 @@ def selective_crossover(component_points, component_feeders, mother, father, non
 def cal_individual_val(component_points, component_nozzle, individual):
     idx, objective_val = 0, []
     machine_component_points = [[] for _ in range(max_machine_index)]
+    nozzle_component_points = defaultdict(list)
 
     # decode the component allocation
-    for points in component_points.values():
+    for comp_idx, points in component_points:
         component_gene = individual[idx: idx + points + max_machine_index - 1]
         machine_idx, component_counter = 0, 0
         for gene in component_gene:
@@ -148,6 +151,11 @@ def cal_individual_val(component_points, component_nozzle, individual):
                 component_counter += 1
         machine_component_points[-1].append(component_counter)
         idx += (points + max_machine_index - 1)
+
+        nozzle_component_points[component_nozzle[comp_idx]] = [0] * len(component_points)   # 初始化元件-吸嘴点数列表
+
+    for comp_idx, points in component_points:
+        nozzle_component_points[component_nozzle[comp_idx]][comp_idx] = points
 
     for machine_idx in range(max_machine_index):
         nozzle_points = defaultdict(int)
@@ -166,6 +174,8 @@ def cal_individual_val(component_points, component_nozzle, individual):
         total_heads = (1 + ul) * max_head_index - len(nozzle_points)
         nozzle_heads = defaultdict(int)
         for nozzle in nozzle_points.keys():
+            if nozzle_points[nozzle] == 0:
+                continue
             nozzle_heads[nozzle] = math.floor(nozzle_points[nozzle] * 1.0 / machine_points * total_heads)
             nozzle_heads[nozzle] += 1
 
@@ -173,7 +183,8 @@ def cal_individual_val(component_points, component_nozzle, individual):
         for heads in nozzle_heads.values():
             total_heads -= heads
 
-        for nozzle in sorted(nozzle_heads, key=lambda x: nozzle_points[x] / nozzle_heads[x], reverse=True):
+        while True:
+            nozzle = max(nozzle_heads, key=lambda x: nozzle_points[x] / nozzle_heads[x])
             if total_heads == 0:
                 break
             nozzle_heads[nozzle] += 1
@@ -193,10 +204,38 @@ def cal_individual_val(component_points, component_nozzle, individual):
                 heads_placement[idx][1] += 1
         heads_placement = sorted(heads_placement, key=lambda x: x[1], reverse=True)
 
+        # the number of pick-up operations
+        # (under the assumption of the number of feeder available for each comp. type is equal 1)
+        pl = 0
+        heads_placement_points = [0 for _ in range(max_head_index)]
+        while True:
+            head_assign_point = []
+            for head in range(max_head_index):
+                if heads_placement_points[head] != 0 or heads_placement[head] == 0:
+                    continue
+
+                nozzle, points = heads_placement[head]
+                max_comp_index = np.argmax(nozzle_component_points[nozzle])
+
+                heads_placement_points[head] = min(points, nozzle_component_points[nozzle][max_comp_index])
+                nozzle_component_points[nozzle][max_comp_index] -= heads_placement_points[head]
+
+                head_assign_point.append(heads_placement_points[head])
+
+            min_points_list = list(filter(lambda x: x > 0, heads_placement_points))
+            if len(min_points_list) == 0 or len(head_assign_point) == 0:
+                break
+
+            pl += max(head_assign_point)
+
+            for head in range(max_head_index):
+                heads_placement[head][1] -= min(min_points_list)
+                heads_placement_points[head] -= min(min_points_list)
+
         # every max_head_index heads in the non-decreasing order are grouped together as nozzle set
         for idx in range(len(heads_placement) // max_head_index):
             wl += heads_placement[idx][1]
-        objective_val.append(T_pp * machine_points + T_tr * wl + T_nc * ul)
+        objective_val.append(T_pp * machine_points + T_tr * wl + T_nc * ul + T_pl * pl)
 
     return objective_val, machine_component_points
 
@@ -219,13 +258,15 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
         component_feeders[part_index] = component_data.loc[part_index]['feeder-limit']
         component_nozzle[part_index] = nozzle
 
+    component_points = sorted(component_points.items(), key=lambda x: x[0])     # 决定染色体排列顺序
+
     # population initialization
     best_popval = []
     population = selective_initialization(component_points, component_feeders, population_size)
     with tqdm(total=n_generations) as pbar:
         pbar.set_description('genetic algorithm process for PCB assembly line balance')
 
-        new_population, new_pop_val = [], []
+        new_population = []
         for _ in range(n_generations):
             # calculate fitness value
             pop_val = []
@@ -267,7 +308,7 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
                         offspring1 = constraint_swap_mutation(component_points, offspring1)
 
                     if np.random.random() < mutation_rate:
-                        offspring1 = constraint_swap_mutation(component_points, offspring1)
+                        offspring2 = constraint_swap_mutation(component_points, offspring2)
 
                     new_population.append(offspring1)
                     new_population.append(offspring2)
