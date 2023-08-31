@@ -27,7 +27,7 @@ def load_data(filename: str, default_feeder_limit=1, load_cp_data=True, load_fee
 
     # 注册元件检查
     part_feeder_assign = defaultdict(set)
-    part_col = ["part", "desc", "fdr", "nz", 'camera', 'group', 'feeder-limit']
+    part_col = ["part", "desc", "fdr", "nz", 'camera', 'group', 'feeder-limit', 'points']
     try:
         if load_cp_data:
             component_data = pd.DataFrame(pd.read_csv(filepath_or_buffer='component.txt', sep='\t', header=None),
@@ -40,18 +40,18 @@ def load_data(filename: str, default_feeder_limit=1, load_cp_data=True, load_fee
     for _, data in pcb_data.iterrows():
         part, nozzle = data.part, data.nz.split(' ')[1]
         slot = data['fdr'].split(' ')[0]
-
         if part not in component_data['part'].values:
             if not cp_auto_register:
                 raise Exception("unregistered component:  " + component_data['part'].values)
             else:
                 component_data = pd.concat([component_data, pd.DataFrame(
-                    [part, '', 'SM8', nozzle, '飞行相机1', 'CHIP-Rect', default_feeder_limit], index=part_col).T],
+                    [part, '', 'SM8', nozzle, '飞行相机1', 'CHIP-Rect', default_feeder_limit, 0], index=part_col).T],
                                            ignore_index=True)
                 # warning_info = 'register component ' + part + ' with default feeder type'
                 # warnings.warn(warning_info, UserWarning)
         part_index = component_data[component_data['part'] == part].index.tolist()[0]
         part_feeder_assign[part].add(slot)
+        component_data.loc[part_index]['points'] += 1
 
         if nozzle != 'A' and component_data.loc[part_index]['nz'] != nozzle:
             warning_info = 'the nozzle type of component ' + part + ' is not consistent with the pcb data'
@@ -64,9 +64,8 @@ def load_data(filename: str, default_feeder_limit=1, load_cp_data=True, load_fee
     # 读取供料器基座数据
     feeder_data = pd.DataFrame(columns=['slot', 'part', 'arg'])      # arg表示是否为预分配，不表示分配数目
     if load_feeder_data:
-        for data in pcb_data.iterrows():
-            fdr = data[1]['fdr']
-            slot, part = fdr.split(' ')
+        for _, data in pcb_data.iterrows():
+            slot, part = data['fdr'].split(' ')
             if slot[0] != 'F' and slot[0] != 'R':
                 continue
             slot = int(slot[1:]) if slot[0] == 'F' else int(slot[1:]) + max_slot_index // 2
@@ -80,6 +79,5 @@ def load_data(filename: str, default_feeder_limit=1, load_cp_data=True, load_fee
 
         feeder_data.sort_values(by='slot', ascending=True, inplace=True, ignore_index=True)
 
-    # plt.scatter(pcb_data["x"], pcb_data["y"])
-    # plt.show()
+    pcb_data = pcb_data.sort_values(by="x", ascending=False)
     return pcb_data, component_data, feeder_data

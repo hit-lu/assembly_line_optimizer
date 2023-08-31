@@ -236,7 +236,10 @@ def cal_individual_val(component_points, component_nozzle, individual):
         for idx in range(len(heads_placement) // max_head_index):
             wl += heads_placement[idx][1]
         objective_val.append(T_pp * machine_points + T_tr * wl + T_nc * ul + T_pl * pl)
+<<<<<<< HEAD
 
+=======
+>>>>>>> 87ddb057cadf152d7af793aa7b8da439dedbe361
     return objective_val, machine_component_points
 
 
@@ -246,7 +249,7 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
     # population size: 200
     # the number of generation: 500
     crossover_rate, mutation_rate = 0.8, 0.1
-    population_size, n_generations = 200, 500
+    population_size, n_generations = 500, 500
 
     # the number of placement points, the number of available feeders, and nozzle type of component respectively
     component_points, component_feeders, component_nozzle = defaultdict(int), defaultdict(int), defaultdict(str)
@@ -275,8 +278,7 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
                 pop_val.append(max(val))
 
             best_popval.append(min(pop_val))
-
-            select_index = get_top_k_value(pop_val, population_size - len(new_pop_val), reverse=False)
+            select_index = get_top_k_value(pop_val, population_size - len(new_population), reverse=False)
             population = [population[idx] for idx in select_index]
             pop_val = [pop_val[idx] for idx in select_index]
 

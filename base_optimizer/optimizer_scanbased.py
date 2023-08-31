@@ -3,11 +3,11 @@ from base_optimizer.optimizer_common import *
 
 
 @timer_wrapper
-def optimizer_scanbased(component_data, pcb_data, hinter):
+def optimizer_genetic_scanning(component_data, pcb_data, hinter):
 
     population_size = 200  # 种群规模
     crossover_rate, mutation_rate = .4, .02
-    n_generation = 5
+    n_generation = 500
 
     component_points = [0] * len(component_data)
     for i in range(len(pcb_data)):
@@ -31,49 +31,51 @@ def optimizer_scanbased(component_data, pcb_data, hinter):
 
         pop_val.append(feeder_arrange_evaluate(feeder_slot_result, cycle_result))
 
-    # todo: 过程写的有问题，暂时不想改
+    sigma_scaling(pop_val, 1)
+
     with tqdm(total=n_generation) as pbar:
         pbar.set_description('hybrid genetic process')
+        new_pop_val, new_pop_individual = [], []
+
+        # min-max convert
+        max_val = 1.5 * max(pop_val)
+        convert_pop_val = list(map(lambda v: max_val - v, pop_val))
         for _ in range(n_generation):
             # 交叉
             for pop in range(population_size):
                 if pop % 2 == 0 and np.random.random() < crossover_rate:
-                    index1, index2 = roulette_wheel_selection(pop_val), -1
+                    index1, index2 = roulette_wheel_selection(convert_pop_val), -1
                     while True:
-                        index2 = roulette_wheel_selection(pop_val)
+                        index2 = roulette_wheel_selection(convert_pop_val)
                         if index1 != index2:
                             break
 
                     # 两点交叉算子
                     offspring1, offspring2 = cycle_crossover(pop_individual[index1], pop_individual[index2])
 
+                    # 变异
+                    if np.random.random() < mutation_rate:
+                        offspring1 = swap_mutation(offspring1)
+
+                    if np.random.random() < mutation_rate:
+                        offspring2 = swap_mutation(offspring2)
+
                     _, cycle_result, feeder_slot_result = convert_individual_2_result(component_points, offspring1)
-                    pop_val.append(feeder_arrange_evaluate(feeder_slot_result, cycle_result))
-                    pop_individual.append(offspring1)
+                    new_pop_val.append(feeder_arrange_evaluate(feeder_slot_result, cycle_result))
+                    new_pop_individual.append(offspring1)
 
                     _, cycle_result, feeder_slot_result = convert_individual_2_result(component_points, offspring2)
-                    pop_val.append(feeder_arrange_evaluate(feeder_slot_result, cycle_result))
-                    pop_individual.append(offspring2)
+                    new_pop_val.append(feeder_arrange_evaluate(feeder_slot_result, cycle_result))
+                    new_pop_individual.append(offspring2)
 
-                    sigma_scaling(pop_val, 1)
+            # generate next generation
+            top_k_index = get_top_k_value(pop_val, population_size - len(new_pop_individual), reverse=False)
+            for index in top_k_index:
+                new_pop_individual.append(pop_individual[index])
+                new_pop_val.append(pop_val[index])
 
-                # 变异
-                if np.random.random() < mutation_rate:
-                    index_ = roulette_wheel_selection(pop_val)
-                    offspring = swap_mutation(pop_individual[index_])
-                    _, cycle_result, feeder_slot_result = convert_individual_2_result(component_points, offspring)
-
-                    pop_val.append(feeder_arrange_evaluate(feeder_slot_result, cycle_result))
-                    pop_individual.append(offspring)
-
-                    sigma_scaling(pop_val, 1)
-
-            new_population, new_popval = [], []
-            for index in get_top_k_value(pop_val, population_size):
-                new_population.append(pop_individual[index])
-                new_popval.append(pop_val[index])
-
-            pop_individual, pop_val = new_population, new_popval
+            pop_individual, pop_val = new_pop_individual, new_pop_val
+            sigma_scaling(pop_val, 1)
 
     # select the best individual
     pop = np.argmin(pop_val)
@@ -98,7 +100,6 @@ def convert_individual_2_result(component_points, pop):
         feeder_part[gene], feeder_base_points[gene] = idx, component_points[idx]
 
     # TODO: 暂时未考虑可用吸嘴数的限制
-    # for _ in range(math.ceil(sum(component_points) / max_head_index)):
     while True:
         # === 周期内循环 ===
         assigned_part = [-1 for _ in range(max_head_index)]  # 当前扫描到的头分配元件信息

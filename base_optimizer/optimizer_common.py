@@ -49,6 +49,12 @@ feeder_width = {'SM8': (7.25, 7.25), 'SM12': (7.00, 20.00), 'SM16': (7.00, 22.00
 # 可用吸嘴数量限制
 nozzle_limit = {'CN065': 6, 'CN040': 6, 'CN220': 6, 'CN400': 6, 'CN140': 6}
 
+# 时间参数
+t_cycle = 0.3
+t_pick, t_place = .078, .051  # 贴装/拾取用时
+t_nozzle_put, t_nozzle_pick = 0.9, 0.75  # 装卸吸嘴用时
+t_nozzle_change = t_nozzle_put + t_nozzle_pick
+t_fix_camera_check = 0.12  # 固定相机检测时间
 
 def axis_moving_time(distance, axis=0):
     distance = abs(distance) * 1e-3
@@ -880,7 +886,7 @@ def constraint_swap_mutation(component_points, individual):
     offspring = individual.copy()
 
     idx, component_index = 0, random.randint(0, len(component_points) - 1)
-    for points in component_points.values():
+    for _, points in component_points:
         if component_index == 0:
             while True:
                 index1, index2 = random.sample(range(points + max_machine_index - 2), 2)
