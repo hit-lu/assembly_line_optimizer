@@ -12,6 +12,7 @@ from dataloader import *
 
 from optimizer_genetic import *
 from optimizer_heuristic import *
+from optimizer_reconfiguration import *
 
 
 def deviation(data):
@@ -25,8 +26,8 @@ def deviation(data):
 def optimizer(pcb_data, component_data, assembly_line_optimizer, single_machine_optimizer):
     # todo: 由于吸嘴更换更因素的存在，在处理PCB8数据时，遗传算法因在负载均衡过程中对这一因素进行了考虑，性能更优
     # assignment_result = assemblyline_optimizer_heuristic(pcb_data, component_data)
-    assignment_result = assemblyline_optimizer_genetic(pcb_data, component_data)
-    print(assignment_result)
+    # assignment_result = assemblyline_optimizer_genetic(pcb_data, component_data)
+    assignment_result = reconfiguration_optimizer(pcb_data, component_data)
 
     assignment_result_cpy = copy.deepcopy(assignment_result)
     placement_points, placement_time = [], []
@@ -232,7 +233,7 @@ def main():
     parser.add_argument('--auto_register', default=1, type=int, help='register the component according the pcb data')
     parser.add_argument('--base_optimizer', default='feeder_scan', type=str, help='base optimizer for single machine')
     parser.add_argument('--assembly_optimizer', default='heuristic', type=str, help='optimizer for PCB Assembly Line')
-    parser.add_argument('--feeder_limit', default=1, type=int,
+    parser.add_argument('--feeder_limit', default=2, type=int,
                         help='the upper feeder limit for each type of component')
     params = parser.parse_args()
 

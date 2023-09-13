@@ -249,7 +249,7 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
     # population size: 200
     # the number of generation: 500
     crossover_rate, mutation_rate = 0.8, 0.1
-    population_size, n_generations = 500, 500
+    population_size, n_generations = 200, 500
 
     # the number of placement points, the number of available feeders, and nozzle type of component respectively
     component_points, component_feeders, component_nozzle = defaultdict(int), defaultdict(int), defaultdict(str)
@@ -264,7 +264,6 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
     component_points = sorted(component_points.items(), key=lambda x: x[0])     # 决定染色体排列顺序
 
     # population initialization
-    best_popval = []
     population = selective_initialization(component_points, component_feeders, population_size)
     with tqdm(total=n_generations) as pbar:
         pbar.set_description('genetic algorithm process for PCB assembly line balance')
@@ -277,7 +276,6 @@ def assemblyline_optimizer_genetic(pcb_data, component_data):
                 val, assigned_points = cal_individual_val(component_points, component_nozzle, individual)
                 pop_val.append(max(val))
 
-            best_popval.append(min(pop_val))
             select_index = get_top_k_value(pop_val, population_size - len(new_population), reverse=False)
             population = [population[idx] for idx in select_index]
             pop_val = [pop_val[idx] for idx in select_index]

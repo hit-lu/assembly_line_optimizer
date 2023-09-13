@@ -19,7 +19,7 @@ from tqdm import tqdm
 max_machine_index = 3
 
 # 时间参数
-T_pp, T_tr, T_nc = 2, 5, 25
+T_pp, T_tr, T_nc, T_pl = 2, 5, 25, 0
 
 # 机器参数
 max_head_index, max_slot_index = 6, 120
@@ -55,6 +55,7 @@ t_pick, t_place = .078, .051  # 贴装/拾取用时
 t_nozzle_put, t_nozzle_pick = 0.9, 0.75  # 装卸吸嘴用时
 t_nozzle_change = t_nozzle_put + t_nozzle_pick
 t_fix_camera_check = 0.12  # 固定相机检测时间
+
 
 def axis_moving_time(distance, axis=0):
     distance = abs(distance) * 1e-3

@@ -4,10 +4,9 @@ import numpy as np
 from base_optimizer.optimizer_common import *
 
 
+# TODO: nozzle tool available restriction
 # TODO: consider with the PCB placement topology
-def assembly_time_estimator(component_points, component_feeders, component_nozzle, assignment_points):
-    # todo: how to deal with nozzle change
-    n_cycle, n_nz_change, n_gang_pick = 0, 0, 0
+def assembly_time_estimator(assignment_points, component_feeders, component_nozzle):
 
     nozzle_heads, nozzle_points = defaultdict(int), defaultdict(int)
     for idx, points in enumerate(assignment_points):
@@ -137,8 +136,6 @@ def assemblyline_optimizer_heuristic(pcb_data, component_data):
                         assignment_points[machine_index] += 1
                         assignment_result[machine_index][part_index] += 1
                         total_points -= 1
-
-    # todo: implementation
 
     # second step: estimate the assembly time for each machine
     # third step: adjust the assignment results to reduce maximal assembly time among all machines
